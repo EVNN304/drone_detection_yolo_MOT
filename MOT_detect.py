@@ -74,7 +74,7 @@ class MOT:
 
                         dets.append([x_lft, y_lft, x_rgh, y_rgh, conf, obj_cls])
 
-                    res, obj_trc = tracker.update(np.array(dets), frame)
+                    res = tracker.update(np.array(dets), frame)
                     print(f"asdas", res, obj_trc)
                     tracker.plot_results(frame, show_trajectories=self.flag_show_track)
 
