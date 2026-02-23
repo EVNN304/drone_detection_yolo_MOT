@@ -430,9 +430,11 @@ class OcSort(BaseTracker):
                 trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits
             ):
                 # +1 as MOT benchmark requires positive
+                tr_id = trk.id + 1
+
                 ret.append(
                     np.concatenate(
-                        (d, [trk.id + 1], [trk.conf], [trk.cls], [trk.det_ind])
+                        (d, [tr_id], [trk.conf], [trk.cls], [trk.det_ind])
                     ).reshape(1, -1)
                 )
             i -= 1

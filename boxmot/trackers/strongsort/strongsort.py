@@ -1,5 +1,5 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
-
+import time
 from pathlib import Path
 
 import numpy as np
@@ -153,7 +153,6 @@ class StrongSort(BaseTracker):
             conf = track.conf
             cls = track.cls
             det_ind = track.det_ind
-
             outputs.append(
                 np.concatenate(
                     ([x1, y1, x2, y2], [id], [conf], [cls], [det_ind])

@@ -5,7 +5,7 @@
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
-
+import time
 from collections import deque
 from pathlib import Path
 from typing import List, Optional, Union
@@ -708,19 +708,22 @@ class HybridSort(BaseTracker):
 
             # Only output fresh tracks and valid det_ind for this frame
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+                ids_trc = trk.id + 1
                 outputs.append([
                     *d.tolist(),
-                    trk.id + 1,                 # track id
+                    ids_trc,                 # track id
                     float(trk.conf),      # conf
                     int(trk.cls),               # cls (from detection)
                     int(trk.det_ind),           # det index (frame-local)
                 ])
-
         # Remove dead tracks
         i = len(self.active_tracks)
         for trk in self.active_tracks[::-1]:
             i -= 1
             if trk.time_since_update > self.max_age:
                 self.active_tracks.pop(i)
+        if len(outputs):
+            return np.asarray(outputs)
 
-        return np.asarray(outputs) if len(outputs) else np.zeros((0, 8), dtype=float)
+        else:
+            return  np.zeros((0, 8), dtype=float)

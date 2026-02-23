@@ -1,5 +1,5 @@
 from boxmot.reid.backends.base_backend import BaseModelBackend
-
+import numpy as np
 
 class ONNXBackend(BaseModelBackend):
 
@@ -30,7 +30,6 @@ class ONNXBackend(BaseModelBackend):
     def forward(self, im_batch):
         # Convert torch tensor to numpy (onnxruntime expects numpy arrays)
         im_batch = im_batch.cpu().numpy()
-
         # Run inference using ONNX session
         features = self.session.run(
             [self.session.get_outputs()[0].name],
