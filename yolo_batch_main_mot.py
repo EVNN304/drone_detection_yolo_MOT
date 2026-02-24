@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from ultralytics import YOLO
 from additional_scripts.main_src.protocols.toolset import Detection_centered
-from GIMBAL.gimbalpy.src.framework.det.detection import *
+
 
 ALGORITHMS = [
     {"name": "Classic NMS", "key": "classic", "params": {"iou_threshold": 0.15}},
@@ -152,11 +152,7 @@ class Yolo_batches():
                             boxes_glob[:, [1, 3]] += y_offset  # y1, y2
                             data = np.column_stack([cls, confs, boxes_glob])  # (N, 6)
                             cls_2, conf_2, bbx_2 = cls.tolist(), confs.tolist(), boxes_glob.tolist()
-                            if cls_2:
-                                abstr_detect.append(SimpleDetection(bbx_2[0], int(cls_2[0]), float(conf_2[0]), time_stamp_fr))
-
                             all_data.append(data)
-                    print("SWWWWWWWWWWWWW", abstr_detect, lst_batch_img[-1].shape)
 
                     if all_data:
                         all_boxes_glob = np.vstack(all_data).tolist()
