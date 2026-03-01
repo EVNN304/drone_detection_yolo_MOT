@@ -4,7 +4,6 @@ from preprocess_denoice import *
 
 
 
-
 def set_cam_param(cap, set_w, set_h):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, set_w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, set_h)
@@ -59,17 +58,19 @@ if __name__ == '__main__':
     crop_w, crop_h = 288, 288
     overlay_w, overlay_h = 0.1, 0.1
     set_w, set_h = 1920, 1200
+
     # в path_video можно прописать rtsp поток камеры, либо пть к видео, либо номер usb камеры 0, 1, 2 и etc   ### rtsp://192.168.75.179:8554/operator/h264/tv
     #path_video = f"/home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt"
     #path_video = f"rtsp://192.168.75.179:8554/operator/h264/tv"
-    #path_video = f"/home/usr/Видео/stock-footage-drone-formation-flying-in-the-air-for-detection.webm"
+    path_video = f"/home/usr/Видео/stock-footage-group-military-fighter-jets-are-flying-high-in-the-sky-silhouette-of-a-bomber-concept-war-army.webm"
     #path_video = f"rtspsrc location=rtsp://192.168.75.179:8554/operator/h264/tv latency=0 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink drop=true max-buffers=1"
     #path_video = f"/home/usr/my_video-2.mkv"
     #path_video = f"/home/usr/Рабочий стол/video/DJI_0571.MP4"
-    #path_video = f"/home/usr/Видео/stock-footage-several-drones-flying-in-airspace-and-searching-for-enemy-positions-military-birds-performing.webm"
+    #path_video = f"/home/usr/PycharmProjects/yolo_proj/ultralytics/videos/ground_to_air/2_n.avi"
     #path_video = f"/home/usr/Видео/stock-footage-drone-shot-following-a-flock-of-birds-as-they-fly-together-on-a-clear-sunny-day.webm"
-    #path_video = 2
-    path_video = f"/home/usr/PycharmProjects/yolo_proj/ultralytics/videos/ground_to_air/2_n.avi"
+    #path_video = 0
+    #path_video = f"/home/usr/Загрузки/Telegram Desktop/IMG_0958.MP4"
+    #path_video = f"/home/usr/Загрузки/first_drone_by_rook.mp4"
     flag_use_denoise = False
     cap_flag_set = False
     flag_video = True
@@ -83,17 +84,17 @@ if __name__ == '__main__':
     print(pth)
                                                                         # /home/usr/Рабочий стол/weights_yolo26/drone_iter_3_m/train23/weights/best.pt
     cl = Yolo_batches(q_frames, q_in, q_out, q_send_names, q_to_mot)   # /home/usr/PycharmProjects/yolo_proj/ultralytics/runs/detect/train20/weights/best.pt    /home/usr/Рабочий стол/weights_yolo26/drone_iter_2/train22/weights/best.pt
-    cl.set_path_model("/home/usr/Рабочий стол/weights_yolo26/drone_iter_3_m/train23/weights/best.pt")   #### /home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt
+    cl.set_path_model("/home/usr/Рабочий стол/weights_yolo26/drone_iter_3_m/train23/weights/best.engine")   #### /home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt
     cl.set_size_inp_layers(288)
     cl.set_conf_model(0.6)
     print("SIZE_LAYERS", cl.get_size_inp_layers())
     cl.process_start()
     mot_start_proc = MOT(q_to_mot)
-    mot_start_proc.set_path_weights_reid('osnet_x0_25_msmt17.pt')  # 'osnet_x0_25_msmt17.pt' /home/usr/Загрузки/resnet50_ (3).onnx
+    mot_start_proc.set_path_weights_reid('/home/usr/Загрузки/Telegram Desktop/osnet_x0_25_reconverted.onnx')  # 'osnet_x0_25_msmt17.pt' /home/usr/Загрузки/resnet50_ (3).onnx  /home/usr/Загрузки/osnet_x0_25_epoch10_big_dataset.onnx
     #mot_start_proc.set_path_weights_reid('osnet_x0_25_msmt17.pt')
     mot_start_proc.set_mot_method(5)
-    mot_start_proc.set_flag_half(True)
-    mot_start_proc.set_flag_show_track(True)
+    mot_start_proc.set_flag_half(False)
+    mot_start_proc.set_flag_show_track(False)
     mot_start_proc.run_process()
     names_classes = q_send_names.get()
 
@@ -131,7 +132,6 @@ if __name__ == '__main__':
             if not q_video.empty():
 
                 image = q_video.get()
-                print(f"Image shape: {image.shape}, dtype: {image.dtype}")
 
                 list_image, list_cropp_cord = [], []
                 for i, k in enumerate(lst_cord):
@@ -140,10 +140,11 @@ if __name__ == '__main__':
                     list_image.append(fragment_processed)
                     list_cropp_cord.append([k[0], k[1]])
                     #q_in.put((image[k[1]:k[3], k[0]:k[2]], [k[0], k[1], k[2], k[3]], [frame_count, len([[k[0], k[1], k[2], k[3]]]), 1, cnn]))
+
                 list_image.append(image)
                 list_cropp_cord.append([0, 0])
                 if q_in.empty():
-                    q_in.put([list_image, list_cropp_cord, image])
+                    q_in.put([list_image, list_cropp_cord])
 
                 # if prev_frames_for_motion_est is not None:
                 #     prev_frames_for_motion_est.insert(0, image.copy())
