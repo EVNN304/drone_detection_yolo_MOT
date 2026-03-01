@@ -63,13 +63,16 @@ class Yolo_inits_batch:
     def collect_n_cast_neuro(self, q_dets: mp.Queue, saved_mode):
 
 
-        timer = Timer()
+        #timer = Timer()
+        start_time = time.time()
+        fr_c = 0
         while True:
-            timer.start()
+            #timer.start()
 
             if not q_dets.empty():
                 frame, detections = q_dets.get()
                 copy_img = copy.deepcopy(frame)
+                fr_c += 1
                 for det_n, det in enumerate(detections):
                     x_lft, y_lft = det.left_top()
                     x_rght, y_rght = det.right_bottom()
@@ -78,6 +81,11 @@ class Yolo_inits_batch:
                     cv.putText(frame, f'{self.name_classes[obj]}[{round(conf, 3)}]', (x_lft, y_lft - 10), 3, 1.3, (0, 0, 255),2)
                 #saved_mode.put([fr, filtered_dets, True])
                 #print("MODES", saved_mode != None)
+                current_time = time.time()
+
+                fps = 1.0 / (current_time - start_time) if fr_c > 0 else 0.0  # Мгновенный FPS
+                start_time = current_time
+                print(f"FPS_DET: {fps}")
                 if saved_mode != None:
                     if saved_mode.empty():
                         if detections:
