@@ -73,7 +73,6 @@ class MOT:
 
 
                         dets.append([x_lft, y_lft, x_rgh, y_rgh, conf, obj_cls])
-
                     res = tracker.update(np.array(dets), frame)
                     tracker.plot_results(frame, show_trajectories=self.flag_show_track)
 
@@ -81,7 +80,11 @@ class MOT:
 
                     frame_count += 1
                     current_time = time.time()
-                    fps = frame_count / (current_time - start_time)
+
+                    fps = 1.0 / (current_time - start_time) if frame_count > 0 else 0.0  # Мгновенный FPS
+                    start_time = current_time
+                    #fps = frame_count / (current_time - start_time)
+                    print(f"Fps_mot:{fps}")
                     cv2.putText(frame, f'FPS: {fps:.1f}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                     cv2.imshow('BoXMOT + YOLOv11x + SAHI', frame)
                     cv2.waitKey(1)
