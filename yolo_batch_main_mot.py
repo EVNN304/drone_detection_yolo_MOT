@@ -7,7 +7,6 @@ import numpy as np
 from ultralytics import YOLO
 from additional_scripts.main_src.protocols.toolset import Detection_centered
 
-
 ALGORITHMS = [
     {"name": "Classic NMS", "key": "classic", "params": {"iou_threshold": 0.15}},
     {"name": "Soft-NMS", "key": "soft", "params": {"iou_thr": 0.5, "sigma": 0.5, "score_threshold": 0.1}},
@@ -33,7 +32,7 @@ class Yolo_batches():
         self.nms_params = self._get_default_params(nms_type)
         self.imgsize = 640
         self.half_flag = True
-        self.verbose = False
+        self.verbose = True
 
     def set_size_inp_layers(self, val:int):
         self.imgsize = val
@@ -127,18 +126,18 @@ class Yolo_batches():
 
         if model == None:
             exit(0)
-
+        start_time = time.time()
+        fr_c = 0
         while True:
             if (not self.q_in.empty()):
                 try:
                     lst_batch_img, cropp_cord = self.q_in.get()
 
-
-                    results = model(lst_batch_img, conf=self.conf,  imgsz=self.imgsize, half=self.half_flag, verbose=self.verbose)
+                    fr_c += 1
+                    results = model(lst_batch_img[:-1], conf=self.conf,  imgsz=self.imgsize, half=self.half_flag, verbose=self.verbose, augment=False, visualize=False) # batch=len(lst_batch_img)
                     all_data = []
                     predictions = []
-                    abstr_detect = []
-                    time_stamp_fr = time.time()
+
                     for i, r in enumerate(results):
                         if r.boxes is not None:
                             boxes = r.boxes.xyxy.cpu().numpy()
@@ -151,7 +150,8 @@ class Yolo_batches():
                             boxes_glob[:, [0, 2]] += x_offset  # x1, x2
                             boxes_glob[:, [1, 3]] += y_offset  # y1, y2
                             data = np.column_stack([cls, confs, boxes_glob])  # (N, 6)
-                            cls_2, conf_2, bbx_2 = cls.tolist(), confs.tolist(), boxes_glob.tolist()
+
+
                             all_data.append(data)
 
                     if all_data:
@@ -162,6 +162,12 @@ class Yolo_batches():
                             self.q_to_mot.put([lst_batch_img[-1], predictions])
                     if self.q_to_mot.empty():
                         self.q_out.put([lst_batch_img[-1], predictions])
+
+                    current_time = time.time()
+
+                    fps = 1.0 / (current_time - start_time) if fr_c > 0 else 0.0  # Мгновенный FPS
+                    start_time = current_time
+                    print(f"PREDS:YOLO_FPS:{fps}")
                 except Exception as e:
                     print(f"Errr_prc_yolo_batch:{e.args}")
 
