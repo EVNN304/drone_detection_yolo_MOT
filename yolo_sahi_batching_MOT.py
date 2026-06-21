@@ -148,24 +148,9 @@ if __name__ == '__main__':
     from MOT_detect import MOT
     from lib.test.evaluation.yolo_mot_stark import Tracker
     from NanoTrack.bin.NanoTrack_infer import NanoTrackWrapper
-    #from VLM_Qwen_class import *                   ### new
 
-    # в path_video можно прописать rtsp поток камеры, либо пть к видео, либо номер usb камеры 0, 1, 2 и etc   ### rtsp://192.168.75.179:8554/operator/h264/tv
-    #path_video = f"/home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt"
-    #path_video = f"rtsp://192.168.75.175:8554/operator/h264/ir_w"
-    #path_video = f"/home/usr/Загрузки/rook.mp4"
-    #path_video = f"rtspsrc location=rtsp://192.168.75.175:8554/operator/h264/tv latency=0 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink drop=true max-buffers=1"
-    #path_video = f"/home/usr/my_video-2.mkv"
-    #path_video = f"/home/usr/Рабочий стол/video/DJI_0571.MP4"
-    #path_video = f"/home/usr/PycharmProjects/yolo_proj/ultralytics/videos/ground_to_air/2_n.avi"
-    #path_video = f"/home/usr/Видео/stock-footage-drone-shot-following-a-flock-of-birds-as-they-fly-together-on-a-clear-sunny-day.webm"
-    #path_video = 0
-    #path_video = f"/home/usr/Загрузки/Telegram Desktop/IMG_0958.MP4"
-    #path_video = f"/home/usr/Загрузки/first_drone_by_rook.mp4"
-    #path_video = f"/home/usr/Видео/stock-footage-swarm-of-drones-flying-at-dusk-a-group-of-drones-hovering-in-the-sky-at-dusk-showcasing-advanced.webm"
-    #path_video = f"/home/usr/Видео/stock-footage-military-drone-flying-in-sunset-sky-army-drone-landing-on-military-base-uav-in-sunrise-clouds.webm"
-    #path_video = f"rtsp://192.168.3.4:8554/raw/tv_w"
-    #path_video = f"/home/usr/Документы/SHILKA/cameras_1803_2/2_TV.mp4"
+
+
     procs = []
 
     renderer_video = BlockRenderer(render_cfg.get("video_stream", {}))
@@ -238,8 +223,6 @@ if __name__ == '__main__':
     neuro_data_collector = neuro_start_proc.run_nets()
     procs.append({'proc': neuro_data_collector, 'target': neuro_start_proc.collect_n_cast_neuro, 'args': (q_out, neuro_start_proc.saved_mode), 'daemon': True, 'name': "Neuro_Collector", 'restarts': 0})
 
-    #prc_vlm = VLM_Qwen(q_to_qwen)    ### new
-    #prc_vlm.run_process()               #### new
 
 
 
