@@ -163,23 +163,22 @@
 
 
 🔮 Реализованные модули:
-✅ STARK Single Object Tracking
-Интегрирован трекер STARK (Spatial-Temporal Anchor-free Representation Learning) для сопровождения одиночных целей:
+   ✅ STARK Single Object Tracking
+   Интегрирован трекер STARK (Spatial-Temporal Anchor-free Representation Learning) для сопровождения одиночных целей:
 
-    Высокая точность при трекинге быстро маневрирующих объектов
-    Устойчивость к окклюзиям и выходам за кадр
-    Режим "lock-on" для выбранного объекта
-    Валидация трека через IoU с MOT и EMA-сглаживание
-
-📥 Установка: https://github.com/researchmm/Stark
-✅ NanoTrack Single Object Tracking
-Интегрирован легковесный трекер NanoTrack для ресурсовограниченных систем:
+        Высокая точность при трекинге быстро маневрирующих объектов
+        Устойчивость к окклюзиям и выходам за кадр
+        Режим "lock-on" для выбранного объекта
+        Валидация трека через IoU с MOT и EMA-сглаживание
+        📥 Установка: https://github.com/researchmm/Stark
+        
+  ✅ NanoTrack Single Object Tracking
+  Интегрирован легковесный трекер NanoTrack для ресурсовограниченных систем:
 
     Минимальные требования к GPU
     Высокая скорость (>100 FPS)
     Альтернатива STARK для embedded-устройств
-
-📥 Установка: https://github.com/microsoft/SiamTracker
+   📥 Установка: https://github.com/microsoft/SiamTracker
 
 
 
