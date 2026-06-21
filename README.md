@@ -27,7 +27,7 @@
 ---
     
 🏗 Архитектура системы
-  ![Drone Detection 00-39-30](examples/Screenshot%from%2026-06-22%02-42-09.png)
+![Screenshot from 2026-06-22 02-42-09](examples/Screenshot%from%2026-06-22%02-42-09.png)
 
 📋 Требования
 
