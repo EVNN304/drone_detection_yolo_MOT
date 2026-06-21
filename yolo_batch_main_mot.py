@@ -6,9 +6,8 @@ import numpy as np
 from ultralytics import YOLO
 from additional_scripts.main_src.protocols.toolset import Detection_centered
 from render_utils import BlockRenderer
-
 from loggers import *
-
+from shm_utils import SharedFrameWriter, SharedFrameReader, SharedCropsReader, SharedSimpleFrameWriter
 
 ALGORITHMS = [
     {"name": "Classic NMS", "key": "classic", "params": {"iou_threshold": 0.15}},
@@ -21,33 +20,67 @@ ALGORITHMS = [
     {"name": "Greedy NMM", "key": "greedynmm", "params": {"iou_threshold": 0.05, "score_threshold": 0.01}},
 ]
 
+
 class Yolo_batches():
-    def __init__(self, q_frames:mp.Queue, q_in:mp.Queue, q_out:mp.Queue, q_names:mp.Queue, q_to_mot:mp.Queue, conf=0.6, path_model="/home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt", nms_type="classic"):
-        self.q_in = q_in
-        self.q_names = q_names
-        self.q_frames = q_frames
-        self.q_out = q_out
+    def __init__(self, q_to_mot: mp.Queue, q_out: mp.Queue, q_names: mp.Queue, q_coords: mp.Queue,
+                 shm_main_to_yolo_name_0=None, shm_main_to_yolo_name_1=None,
+                 shm_main_to_yolo_free_queue=None, shm_main_to_yolo_ready_queue=None,
+                 shm_crops_name=None, num_crops=None, crop_h=None, crop_w=None,
+                 shm_mot_name_0=None, shm_mot_name_1=None,
+                 shm_mot_free_queue=None, shm_mot_ready_queue=None,
+                 shm_neuro_name=None,
+                 frame_h=1080, frame_w=1920):
         self.q_to_mot = q_to_mot
-        self.conf = conf
-        self.path_model = path_model
+        self.q_out = q_out
+        self.q_names = q_names
+        self.q_coords = q_coords
+        self.conf = 0.6
+        self.path_model = "/home/usr/PycharmProjects/yolo_proj/ultralytics/final_weights_train/ground_to_air/best_yolo11x_288x288_batch_64.pt"
         self.clases_names = {}
-        self.nms_type = nms_type
-        self.nms_params = self._get_default_params(nms_type)
+        self.nms_type = "classic"
+        self.nms_params = self._get_default_params(self.nms_type)
         self.imgsize = 640
         self.half_flag = True
         self.verbose = True
         self.device = 0
         self.logger = logging.getLogger(__name__)
 
+        # Shared Memory для чтения оригинального кадра от главного процесса
+        self.shm_main_reader = None
+        if shm_main_to_yolo_name_0:
+            self.shm_main_reader = SharedFrameReader(
+                frame_h, frame_w,
+                shm_main_to_yolo_name_0, shm_main_to_yolo_name_1,
+                shm_main_to_yolo_free_queue, shm_main_to_yolo_ready_queue
+            )
+
+        # Shared Memory для чтения кропов от главного процесса
+        self.shm_crops_reader = None
+        if shm_crops_name:
+            self.shm_crops_reader = SharedCropsReader(num_crops, crop_h, crop_w, shm_crops_name)
+
+        # Shared Memory для записи кадра в MOT
+        self.shm_mot_writer = None
+        if shm_mot_name_0:
+            self.shm_mot_writer = SharedFrameWriter(
+                frame_h, frame_w,
+                shm_mot_name_0, shm_mot_name_1,
+                shm_mot_free_queue, shm_mot_ready_queue
+            )
+
+        # Shared Memory для записи кадра в Neuro collector
+        self.shm_neuro_writer = None
+        if shm_neuro_name:
+            self.shm_neuro_writer = SharedSimpleFrameWriter(frame_h, frame_w, shm_neuro_name)
+            self.logger.info("✅ YOLO: SharedSimpleFrameWriter для Neuro создан")
 
     def set_device(self, val):
         self.device = val
 
-
-    def set_size_inp_layers(self, val:int):
+    def set_size_inp_layers(self, val: int):
         self.imgsize = val
 
-    def set_half_flag(self, val:bool):
+    def set_half_flag(self, val: bool):
         self.half_flag = val
 
     def get_size_inp_layers(self):
@@ -69,24 +102,22 @@ class Yolo_batches():
     def set_nms_params(self, **params):
         self.nms_params.update(params)
 
-
-    def set_path_model(self, val:str):
+    def set_path_model(self, val: str):
         self.path_model = val
 
-    def set_conf_model(self, val:float):
+    def set_conf_model(self, val: float):
         self.conf = val
 
-    def set_classes_names(self, val:dict):
+    def set_classes_names(self, val: dict):
         self.clases_names = val
         self.q_names.put(self.clases_names)
 
-    def set_verbose(self, val:bool):
+    def set_verbose(self, val: bool):
         self.verbose = val
 
     def apply_nms(self, all_boxes_glob):
         if not all_boxes_glob:
             return []
-
         if self.nms_type == "classic":
             return self._nms_classic(all_boxes_glob, **self.nms_params)
         elif self.nms_type == "soft":
@@ -100,7 +131,6 @@ class Yolo_batches():
         elif self.nms_type == "greedynmm":
             return self._nms_greedynmm(all_boxes_glob, **self.nms_params)
         else:
-            self.logger.info(f"Unknown NMS type: {self.nms_type}")
             return all_boxes_glob
 
     def load_model(self):
@@ -111,47 +141,55 @@ class Yolo_batches():
             return None
 
     def process_start(self, daemon=True):
-
         prc_main = mp.Process(target=self.main_func, args=(), daemon=daemon)
         prc_main.start()
-        return  prc_main
-
+        return prc_main
 
     def _nms_classic(self, all_boxes_glob, iou_threshold=0.5):
         if not all_boxes_glob:
             return []
-
-        # all_boxes_glob: [[cls, conf, x1, y1, x2, y2], ...]
         boxes = torch.tensor([[x1, y1, x2, y2] for _, _, x1, y1, x2, y2 in all_boxes_glob])
         scores = torch.tensor([conf for _, conf, _, _, _, _ in all_boxes_glob])
-
         keep_indices = ops.nms(boxes, scores, iou_threshold)
-
         return [all_boxes_glob[i] for i in keep_indices.tolist()]
 
-
-
-
     def main_func(self):
-        if not logging.getLogger().handlers: setup_logging()  # ← только для spawn
+        if not logging.getLogger().handlers:
+            setup_logging()
         model = self.load_model()
         self.set_classes_names(model.names)
-
         if model == None:
             exit(0)
         start_time = time.time()
         fr_c = 0
+
         while True:
-
-
-
-
-            if (not self.q_in.empty()):
+            if not self.q_coords.empty():
                 try:
-                    lst_batch_img, cropp_cord = self.q_in.get()
+                    coords_list = self.q_coords.get()
+
+                    # Читаем оригинальный кадр из SHM
+                    if self.shm_main_reader:
+                        original_frame = self.shm_main_reader.read_frame()
+                    else:
+                        continue
+
+                    # Читаем кропы из SHM
+                    if self.shm_crops_reader:
+                        crops_list = self.shm_crops_reader.read_crops()
+                    else:
+                        continue
+
+                    crops_list.append(original_frame)
+                    coords_list.append([0, 0])
 
                     fr_c += 1
-                    results = model(lst_batch_img[::], device=self.device, conf=self.conf,  imgsz=self.imgsize, half=self.half_flag, verbose=self.verbose, augment=False, visualize=False) # batch=len(lst_batch_img)
+
+                    # Обрабатываем кропы через YOLO
+                    results = model(crops_list, device=self.device, conf=self.conf,
+                                    imgsz=self.imgsize, half=self.half_flag,
+                                    verbose=self.verbose, augment=False, visualize=False)
+
                     all_data = []
                     predictions = []
 
@@ -160,162 +198,132 @@ class Yolo_batches():
                             boxes = r.boxes.xyxy.cpu().numpy()
                             confs = r.boxes.conf.cpu().numpy()
                             cls = r.boxes.cls.cpu().numpy()
-
-                            x_offset, y_offset = cropp_cord[i]
-
+                            x_offset, y_offset = coords_list[i]
                             boxes_glob = boxes.copy()
-                            boxes_glob[:, [0, 2]] += x_offset  # x1, x2
-                            boxes_glob[:, [1, 3]] += y_offset  # y1, y2
-                            data = np.column_stack([cls, confs, boxes_glob])  # (N, 6)
-
-
+                            boxes_glob[:, [0, 2]] += x_offset
+                            boxes_glob[:, [1, 3]] += y_offset
+                            data = np.column_stack([cls, confs, boxes_glob])
                             all_data.append(data)
 
                     if all_data:
                         all_boxes_glob = np.vstack(all_data).tolist()
                         all_boxes_glob = self.apply_nms(all_boxes_glob)
                         predictions = self.filter_and_shift(all_boxes_glob)
-                        if self.q_to_mot.empty():
-                            self.q_to_mot.put([lst_batch_img[-1], predictions])
 
+                        # Отправляем оригинальный кадр в MOT через SHM
+                        if self.shm_mot_writer:
+                            self.shm_mot_writer.write_frame(original_frame)
+                            if self.q_to_mot.empty():
+                                self.q_to_mot.put({'predictions': predictions, 'frame_idx': fr_c})
 
-                    if self.q_to_mot.empty():
-                        self.q_out.put([lst_batch_img[-1], predictions])
+                        # Отправляем оригинальный кадр в Neuro collector через SHM
+                        if self.shm_neuro_writer:
+                            self.shm_neuro_writer.write_frame(original_frame)
+                            if self.q_out.empty():
+                                self.q_out.put([True, predictions])  # True = кадр в SHM
+                        else:
+
+                            if self.q_out.empty():
+                                self.q_out.put([original_frame, predictions])
 
                     current_time = time.time()
-
-                    fps = 1.0 / (current_time - start_time) if fr_c > 0 else 0.0  # Мгновенный FPS
+                    fps = 1.0 / (current_time - start_time) if fr_c > 0 else 0.0
                     start_time = current_time
                     self.logger.info(f"PREDS:YOLO_FPS:{fps}")
 
                 except Exception as e:
-                    self.logger.error(f"YOLO batch processing failed: {e}", exc_info=True)
-
-
+                    self.logger.error(f"YOLO processing failed: {e}", exc_info=True)
 
     def _nms_greedynmm(self, all_boxes_glob, iou_threshold=0.05, score_threshold=0.01):
         if not all_boxes_glob:
             return []
-
         boxes = np.array([[x1, y1, x2, y2] for _, _, x1, y1, x2, y2 in all_boxes_glob])
         scores = np.array([conf for _, conf, _, _, _, _ in all_boxes_glob])
         classes = np.array([cls for cls, _, _, _, _, _ in all_boxes_glob])
-
         keep = []
         merged = np.zeros(len(scores), dtype=bool)
-
         for i in range(len(scores)):
-            if merged[i]:
+            if merged[i] or scores[i] < score_threshold:
                 continue
-            if scores[i] < score_threshold:
-                continue
-
             idxs = np.where(classes == classes[i])[0]
             idxs = idxs[scores[idxs] >= score_threshold]
             idxs = idxs[~merged[idxs]]
-
             if len(idxs) == 1:
                 keep.append(i)
                 merged[i] = True
                 continue
-
             current_boxes = boxes[idxs]
             current_scores = scores[idxs]
-
             x1, y1, x2, y2 = current_boxes[:, 0], current_boxes[:, 1], current_boxes[:, 2], current_boxes[:, 3]
             areas = (x2 - x1) * (y2 - y1)
-
             xx1 = np.maximum(x1[:, None], x1[None, :])
             yy1 = np.maximum(y1[:, None], y1[None, :])
             xx2 = np.minimum(x2[:, None], x2[None, :])
             yy2 = np.minimum(y2[:, None], y2[None, :])
-
             w = np.maximum(0, xx2 - xx1)
             h = np.maximum(0, yy2 - yy1)
             inter = w * h
-
             union = areas[:, None] + areas[None, :] - inter
             iou = inter / (union + 1e-9)
-
             to_merge = iou >= iou_threshold
             merged_local = np.zeros(len(idxs), dtype=bool)
-
             for j in range(len(idxs)):
                 if merged_local[j]:
                     continue
                 merged_local[to_merge[j]] = True
-
                 sub_boxes = current_boxes[to_merge[j]]
                 sub_scores = current_scores[to_merge[j]]
-
                 x1_avg = np.average(sub_boxes[:, 0], weights=sub_scores)
                 y1_avg = np.average(sub_boxes[:, 1], weights=sub_scores)
                 x2_avg = np.average(sub_boxes[:, 2], weights=sub_scores)
                 y2_avg = np.average(sub_boxes[:, 3], weights=sub_scores)
-
                 merged_idx = idxs[j]
                 all_boxes_glob[merged_idx][2] = x1_avg
                 all_boxes_glob[merged_idx][3] = y1_avg
                 all_boxes_glob[merged_idx][4] = x2_avg
                 all_boxes_glob[merged_idx][5] = y2_avg
-
             merged[idxs[merged_local]] = True
             keep.append(merged_idx)
-
         return [all_boxes_glob[i] for i in keep]
 
     def _nms_nmm(self, all_boxes_glob, iou_threshold=0.15, merge_method="weighted"):
         if not all_boxes_glob:
             return []
-
         boxes = np.array([[x1, y1, x2, y2] for _, _, x1, y1, x2, y2 in all_boxes_glob])
         scores = np.array([conf for _, conf, _, _, _, _ in all_boxes_glob])
         classes = np.array([cls for cls, _, _, _, _, _ in all_boxes_glob])
-
         keep = []
         merged = np.zeros(len(scores), dtype=bool)
-
         for i in range(len(scores)):
             if merged[i]:
                 continue
-
             idxs = np.where(classes == classes[i])[0]
             idxs = idxs[~merged[idxs]]
-
             if len(idxs) == 1:
                 keep.append(i)
                 merged[i] = True
                 continue
-
             current_boxes = boxes[idxs]
             current_scores = scores[idxs]
-
             x1, y1, x2, y2 = current_boxes[:, 0], current_boxes[:, 1], current_boxes[:, 2], current_boxes[:, 3]
             areas = (x2 - x1) * (y2 - y1)
-
             xx1 = np.maximum(x1[:, None], x1[None, :])
             yy1 = np.maximum(y1[:, None], y1[None, :])
             xx2 = np.minimum(x2[:, None], x2[None, :])
             yy2 = np.minimum(y2[:, None], y2[None, :])
-
             w = np.maximum(0, xx2 - xx1)
             h = np.maximum(0, yy2 - yy1)
             inter = w * h
-
             union = areas[:, None] + areas[None, :] - inter
             iou = inter / (union + 1e-9)
-
             to_merge = iou >= iou_threshold
             merged_local = np.zeros(len(idxs), dtype=bool)
-
             for j in range(len(idxs)):
                 if merged_local[j]:
                     continue
                 merged_local[to_merge[j]] = True
-
                 sub_boxes = current_boxes[to_merge[j]]
                 sub_scores = current_scores[to_merge[j]]
-
                 if merge_method == "weighted":
                     x1_avg = np.average(sub_boxes[:, 0], weights=sub_scores)
                     y1_avg = np.average(sub_boxes[:, 1], weights=sub_scores)
@@ -326,115 +334,90 @@ class Yolo_batches():
                     y1_avg = np.mean(sub_boxes[:, 1])
                     x2_avg = np.mean(sub_boxes[:, 2])
                     y2_avg = np.mean(sub_boxes[:, 3])
-
                 merged_idx = idxs[j]
                 all_boxes_glob[merged_idx][2] = x1_avg
                 all_boxes_glob[merged_idx][3] = y1_avg
                 all_boxes_glob[merged_idx][4] = x2_avg
                 all_boxes_glob[merged_idx][5] = y2_avg
-
             merged[idxs[merged_local]] = True
             keep.append(merged_idx)
-
         return [all_boxes_glob[i] for i in keep]
 
     def _nms_soft(self, all_boxes_glob, iou_thr=0.5, sigma=0.5, score_threshold=0.1):
         if not all_boxes_glob:
             return []
-
         boxes = np.array([[x1, y1, x2, y2] for _, _, x1, y1, x2, y2 in all_boxes_glob])
         scores = np.array([conf for _, conf, _, _, _, _ in all_boxes_glob])
         classes = np.array([cls for cls, _, _, _, _, _ in all_boxes_glob])
-
         keep = []
         while len(scores) > 0:
             idx_max = np.argmax(scores)
             keep.append(idx_max)
-
             xx1 = np.maximum(boxes[idx_max][0], boxes[:, 0])
             yy1 = np.maximum(boxes[idx_max][1], boxes[:, 1])
             xx2 = np.minimum(boxes[idx_max][2], boxes[:, 2])
             yy2 = np.minimum(boxes[idx_max][3], boxes[:, 3])
-
             w = np.maximum(0, xx2 - xx1)
             h = np.maximum(0, yy2 - yy1)
             inter = w * h
-
             area_current = (boxes[idx_max][2] - boxes[idx_max][0]) * (boxes[idx_max][3] - boxes[idx_max][1])
             area_rest = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-
             union = area_current + area_rest - inter
             iou = inter / (union + 1e-9)
-
-            scores = scores * np.exp(- (iou ** 2) / sigma)
-
+            scores = scores * np.exp(-(iou ** 2) / sigma)
             mask = scores > score_threshold
             boxes = boxes[mask]
             scores = scores[mask]
             classes = classes[mask]
-
         return [all_boxes_glob[i] for i in keep]
 
     def _nms_diou(self, all_boxes_glob, iou_threshold=0.5, beta=1.0):
         if not all_boxes_glob:
             return []
-
         boxes = np.array([[x1, y1, x2, y2] for _, _, x1, y1, x2, y2 in all_boxes_glob])
         scores = np.array([conf for _, conf, _, _, _, _ in all_boxes_glob])
         classes = np.array([cls for cls, _, _, _, _, _ in all_boxes_glob])
-
         x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
         areas = (x2 - x1) * (y2 - y1)
-
         keep = []
         while len(scores) > 0:
             idx_max = np.argmax(scores)
             keep.append(idx_max)
-
             xx1 = np.maximum(x1[idx_max], x1)
             yy1 = np.maximum(y1[idx_max], y1)
             xx2 = np.minimum(x2[idx_max], x2)
             yy2 = np.minimum(y2[idx_max], y2)
-
             w = np.maximum(0, xx2 - xx1)
             h = np.maximum(0, yy2 - yy1)
             inter = w * h
-
             union = areas[idx_max] + areas - inter
             iou = inter / (union + 1e-9)
-
             center_x1 = (x1[idx_max] + x2[idx_max]) / 2
             center_y1 = (y1[idx_max] + y2[idx_max]) / 2
             center_x2 = (x1 + x2) / 2
             center_y2 = (y1 + y2) / 2
-            center_dist = (center_x1 - center_x2)**2 + (center_y1 - center_y2)**2
-
+            center_dist = (center_x1 - center_x2) ** 2 + (center_y1 - center_y2) ** 2
             c_x1 = np.minimum(x1[idx_max], x1)
             c_y1 = np.minimum(y1[idx_max], y1)
             c_x2 = np.maximum(x2[idx_max], x2)
             c_y2 = np.maximum(y2[idx_max], y2)
-            diag_dist = (c_x2 - c_x1)**2 + (c_y2 - c_y1)**2
-
-            diou = iou - (center_dist / (diag_dist + 1e-9))**beta
-
+            diag_dist = (c_x2 - c_x1) ** 2 + (c_y2 - c_y1) ** 2
+            diou = iou - (center_dist / (diag_dist + 1e-9)) ** beta
             mask = diou <= iou_threshold
             boxes = boxes[mask]
             scores = scores[mask]
             classes = classes[mask]
-
         return [all_boxes_glob[i] for i in keep]
 
     def _nms_wbf(self, all_boxes_glob, iou_thr=0.5, skip_box_thr=0.0001):
         if not all_boxes_glob:
             return []
-
         cls_groups = {}
         for box in all_boxes_glob:
             cls = box[0]
             if cls not in cls_groups:
                 cls_groups[cls] = []
             cls_groups[cls].append(box)
-
         result = []
         for cls, boxes in cls_groups.items():
             boxes = np.array(boxes)
@@ -443,30 +426,23 @@ class Yolo_batches():
             boxes = boxes[mask]
             if len(boxes) == 0:
                 continue
-
             bboxes = boxes[:, 2:6]
             scores = boxes[:, 1]
-
             x1, y1, x2, y2 = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
             areas = (x2 - x1) * (y2 - y1)
-
             keep = []
             while len(scores) > 0:
                 idx_max = np.argmax(scores)
                 keep.append(idx_max)
-
                 xx1 = np.maximum(x1[idx_max], x1)
                 yy1 = np.maximum(y1[idx_max], y1)
                 xx2 = np.minimum(x2[idx_max], x2)
                 yy2 = np.minimum(y2[idx_max], y2)
-
                 w = np.maximum(0, xx2 - xx1)
                 h = np.maximum(0, yy2 - yy1)
                 inter = w * h
-
                 union = areas[idx_max] + areas - inter
                 iou = inter / (union + 1e-9)
-
                 mask = iou <= iou_thr
                 x1 = x1[mask]
                 y1 = y1[mask]
@@ -474,15 +450,14 @@ class Yolo_batches():
                 y2 = y2[mask]
                 scores = scores[mask]
                 areas = areas[mask]
-
             result.extend([all_boxes_glob[i] for i in keep])
-
         return result
-
 
     def filter_and_shift(self, detections):
         predictions = []
         for i, k in enumerate(detections):
-            x_cnt, y_cnt = int(k[2] + ((k[4] - k[2])/2)), int(k[3] + ((k[5] - k[3])/2))
-            predictions.append(Detection_centered((float(x_cnt), float(y_cnt), float((k[4] - k[2])), float((k[5] - k[3]))), int(k[0]), k[1]))
+            x_cnt, y_cnt = int(k[2] + ((k[4] - k[2]) / 2)), int(k[3] + ((k[5] - k[3]) / 2))
+            predictions.append(
+                Detection_centered((float(x_cnt), float(y_cnt), float((k[4] - k[2])), float((k[5] - k[3]))), int(k[0]),
+                                   k[1]))
         return predictions
