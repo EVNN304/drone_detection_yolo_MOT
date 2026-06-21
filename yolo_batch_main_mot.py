@@ -1,11 +1,14 @@
 import multiprocessing as mp
 import time
-
 import torchvision.ops as ops
 import torch
 import numpy as np
 from ultralytics import YOLO
 from additional_scripts.main_src.protocols.toolset import Detection_centered
+from render_utils import BlockRenderer
+
+from loggers import *
+
 
 ALGORITHMS = [
     {"name": "Classic NMS", "key": "classic", "params": {"iou_threshold": 0.15}},
@@ -33,6 +36,13 @@ class Yolo_batches():
         self.imgsize = 640
         self.half_flag = True
         self.verbose = True
+        self.device = 0
+        self.logger = logging.getLogger(__name__)
+
+
+    def set_device(self, val):
+        self.device = val
+
 
     def set_size_inp_layers(self, val:int):
         self.imgsize = val
@@ -90,20 +100,22 @@ class Yolo_batches():
         elif self.nms_type == "greedynmm":
             return self._nms_greedynmm(all_boxes_glob, **self.nms_params)
         else:
-            print(f"Unknown NMS type: {self.nms_type}")
+            self.logger.info(f"Unknown NMS type: {self.nms_type}")
             return all_boxes_glob
 
     def load_model(self):
         try:
             return YOLO(self.path_model)
         except Exception as e:
-            print(f"Error_load_model: {e.args}")
+            self.logger.error(f"Error_load_model: {e.args}")
             return None
 
     def process_start(self, daemon=True):
 
         prc_main = mp.Process(target=self.main_func, args=(), daemon=daemon)
         prc_main.start()
+        return  prc_main
+
 
     def _nms_classic(self, all_boxes_glob, iou_threshold=0.5):
         if not all_boxes_glob:
@@ -121,6 +133,7 @@ class Yolo_batches():
 
 
     def main_func(self):
+        if not logging.getLogger().handlers: setup_logging()  # ← только для spawn
         model = self.load_model()
         self.set_classes_names(model.names)
 
@@ -129,12 +142,16 @@ class Yolo_batches():
         start_time = time.time()
         fr_c = 0
         while True:
+
+
+
+
             if (not self.q_in.empty()):
                 try:
                     lst_batch_img, cropp_cord = self.q_in.get()
 
                     fr_c += 1
-                    results = model(lst_batch_img[:-1], conf=self.conf,  imgsz=self.imgsize, half=self.half_flag, verbose=self.verbose, augment=False, visualize=False) # batch=len(lst_batch_img)
+                    results = model(lst_batch_img[::], device=self.device, conf=self.conf,  imgsz=self.imgsize, half=self.half_flag, verbose=self.verbose, augment=False, visualize=False) # batch=len(lst_batch_img)
                     all_data = []
                     predictions = []
 
@@ -160,6 +177,8 @@ class Yolo_batches():
                         predictions = self.filter_and_shift(all_boxes_glob)
                         if self.q_to_mot.empty():
                             self.q_to_mot.put([lst_batch_img[-1], predictions])
+
+
                     if self.q_to_mot.empty():
                         self.q_out.put([lst_batch_img[-1], predictions])
 
@@ -167,9 +186,10 @@ class Yolo_batches():
 
                     fps = 1.0 / (current_time - start_time) if fr_c > 0 else 0.0  # Мгновенный FPS
                     start_time = current_time
-                    print(f"PREDS:YOLO_FPS:{fps}")
+                    self.logger.info(f"PREDS:YOLO_FPS:{fps}")
+
                 except Exception as e:
-                    print(f"Errr_prc_yolo_batch:{e.args}")
+                    self.logger.error(f"YOLO batch processing failed: {e}", exc_info=True)
 
 
 

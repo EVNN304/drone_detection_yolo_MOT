@@ -1,0 +1,208 @@
+input:
+  mode: "video"
+  path: "/media/usr/KINGSTON/230426_cameras/TV_N_2026-04-23_13-28-47_part0000.ts"
+  folder_path: "/home/usr/Изображения/IR_img_dataset/data2 (1)/data2/"
+  resolution: [1280, 720]
+  fps: 30
+  cap_flag_set: false
+  realtime_queue: false
+
+sahi:
+  crop_w: 288
+  crop_h: 288
+  overlay_w: 0.1
+  overlay_h: 0.1
+
+model:
+  yolo_weights: "/home/usr/Documents/weights_yolo26/drone_iter_4_s/train39/weights/best_288x288_yolo26s_d.pt"              #### /home/usr/PycharmProjects/yolo_proj/ultralytics/runs/detect/train20/weights/best.pt
+  img_size: 288
+  conf_threshold: 0.55
+  nms_type: "classic"
+  nms_params:
+    iou_threshold: 0.15
+  half_flag: true
+  device: 0
+  verbose: true
+
+mot:
+  method: 5
+  reid_weights: "/home/usr/PycharmProjects/ultralytics_yolo/GIMBAL/src/app_rook_ltp/models/resnet50_ep10.pt"
+  half: true
+  show_track: false
+  max_lost_frames: 30
+
+  # Базовые параметры (передаются всем трекерам через **kwargs)
+  base:
+    det_thresh: 0.3
+    max_age: 30
+    max_obs: 50
+    min_hits: 5
+    iou_threshold: 0.3
+    per_class: false
+    nr_classes: 80
+    asso_func: "iou"
+    is_obb: false
+    cmc_method: "ecc"
+    with_reid: true
+    frame_rate: 30
+    track_buffer: 1000
+
+  # Специфичные параметры по ID трекера.
+  # Роутер автоматически подтянет только секцию, совпадающую с method
+  params:
+    0:  # BoostTrack
+      use_ecc: true
+      min_box_area: 10
+      aspect_ratio_thresh: 1.6
+      lambda_iou: 0.5
+      lambda_mhd: 0.25
+      lambda_shape: 0.25
+      use_dlo_boost: true
+      use_duo_boost: true
+      dlo_boost_coef: 0.65
+      s_sim_corr: false
+      use_rich_s: false
+      use_sb: false
+      use_vt: false
+    1:  # BotSort
+      track_high_thresh: 0.5
+      track_low_thresh: 0.1
+      new_track_thresh: 0.6
+      match_thresh: 0.8
+      proximity_thresh: 0.5
+      appearance_thresh: 0.25
+      fuse_first_associate: false
+    2:  # StrongSort
+      min_conf: 0.1
+      max_cos_dist: 0.2
+      max_iou_dist: 0.7
+      n_init: 3
+      nn_budget: 100
+      mc_lambda: 0.98
+      ema_alpha: 0.9
+    3:  # DeepOcSort
+      delta_t: 3
+      inertia: 0.2
+      w_association_emb: 0.5
+      alpha_fixed_emb: 0.95
+      aw_param: 0.5
+      embedding_off: false
+      cmc_off: false
+      aw_off: false
+      Q_xy_scaling: 0.01
+      Q_s_scaling: 0.0001
+    4:  # ByteTrack
+      min_conf: 0.1
+      track_thresh: 0.45
+      match_thresh: 0.8
+      track_buffer: 25
+      frame_rate: 30
+    5:  # HybridSort
+      low_thresh: 0.1
+      delta_t: 3
+      inertia: 0.05
+      use_byte: true
+      use_custom_kf: true
+      longterm_bank_length: 30
+      alpha: 0.9
+      adapfs: false
+      track_thresh: 0.5
+      EG_weight_high_score: 4.6
+      EG_weight_low_score: 1.3
+      TCM_first_step: true
+      TCM_byte_step: true
+      TCM_byte_step_weight: 1.0
+      high_score_matching_thresh: 0.7
+      with_longterm_reid: true
+      longterm_reid_weight: 0.0
+      with_longterm_reid_correction: true
+      longterm_reid_correction_thresh: 0.4
+      longterm_reid_correction_thresh_low: 0.4
+      dataset: ""
+    6:  # OcSort
+      min_conf: 0.1
+      delta_t: 3
+      inertia: 0.2
+      use_byte: false
+      Q_xy_scaling: 0.01
+      Q_s_scaling: 0.0001
+
+tracker:
+
+  stark_s:
+    enabled: true              #STARK: включить/выключить
+    mode: "baseline"
+    video_mode: true
+
+  nanotrack:
+    enabled: false             # NanoTrack: включить/выключить
+    config_path: "/home/usr/PycharmProjects/Siam_tracker/SiamTrackers/NanoTrack/models/config/configv3.yaml"
+    snapshot_path: "/home/usr/PycharmProjects/Siam_tracker/SiamTrackers/NanoTrack/checkpoint_e56.pth"
+
+  priority_order: ["nanotrack", "stark_s"]  #Порядок: первый enabled=true в списке → выбирается
+  default_tracker: "stark_s"                 #Если все enabled=false → этот будет выбран
+  fallback_on_error: true
+
+# раздел для записи/сохранения детекций
+recording:
+  names_files: "IR_SHILKA_122_"
+  saved_mode: null    # Выкл режим сохранения проставить надо null
+  name_folder: "/media/usr/KINGSTON/TEST_SAVE"
+
+  size_cut_w: 800
+  size_cut_h: 800
+  min_conf: 0.9
+
+tensorrt:
+  enabled: true              # Флаг: true = конвертировать, false = пропустить
+  format: "engine"            #Формат экспорта
+  device: 0                   # ID GPU
+  half: true                  # FP16
+  int8: false                 # INT8
+  dynamic: true               # Динамический батч
+  simplify: true              # Упрощение ONNX графа
+  workspace: 1.3              # Память GPU (GB)
+  imgsz: [288, 288]           # Размер входа (список или число)
+  batch: 64                   # Максимальный batch size
+  nms: false                  # Встроенный NMS (оставляем false для кастомного)
+  verbose: true              # Подробный лог конвертации
+
+
+
+
+render:
+  video_stream:
+    enabled: true
+    window_name: "Original Stream + SAHI"
+    resize_factor: 0.7
+    waitkey_delay: 1
+  mot:
+    enabled: true
+    window_name: "MOT Tracker"
+    resize_factor: 0.7
+    show_trajectories: false
+    waitkey_delay: 1
+  stark:
+    enabled: true
+    window_name: "STARK Target"
+    resize_factor: 0.7
+    waitkey_delay: 1
+  neuro:
+    enabled: true
+    window_name: "Detection View"
+    resize_factor: 0.7
+    waitkey_delay: 1
+
+pipeline:
+  max_queue_retries: 35
+  stop_timeout_sec: 0.5
+
+
+# === VLM (Vision-Language Model) ===
+vlm:
+  enabled: false              # Включить/выключить VLM
+  send_interval: 30          # Отправлять кадр в VLM раз в N кадров
+  max_objects: 30             # Максимум объектов для анализа
+  device: "cuda:1"           # GPU для VLM (cuda:0 или cuda:1)
+  model_id: "Qwen/Qwen2.5-VL-3B-Instruct"  # Модель VLM
+  crop_size: 512             # Размер кропа для анализа
